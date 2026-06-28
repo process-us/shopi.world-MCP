@@ -9,23 +9,76 @@ Usage:
 from __future__ import annotations
 
 import base64
+import json
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mcp_client import connect  # noqa: E402
 
-BATCH = 25
 TEXT_SUFFIXES = {
     ".liquid", ".json", ".css", ".js", ".svg", ".txt", ".md", ".xml", ".map", ".scss", ".ts"
 }
 SKIP_NAMES = {"manifest.json", ".gitignore", "README.md", "LICENSE"}
+# Never upload VCS, tooling, or hidden paths to Shopify.
+SKIP_DIR_PARTS = frozenset({".git", "scripts", "node_modules", "__pycache__"})
+MAX_BATCH_BYTES = 100_000
+MAX_BATCH_FILES = 3
+
+
+def is_theme_mirror_file(path: Path, root: Path) -> bool:
+    if not path.is_file() or path.name in SKIP_NAMES:
+        return False
+    parts = path.relative_to(root).parts
+    if not parts:
+        return False
+    if parts[0] in SKIP_DIR_PARTS:
+        return False
+    if any(part.startswith(".") for part in parts):
+        return False
+    return True
+
+
+def collect_mirror_paths(root: Path) -> list[Path]:
+    return sorted(p for p in root.rglob("*") if is_theme_mirror_file(p, root))
+
+
+def batch_exports(exports: list[dict], max_bytes: int = MAX_BATCH_BYTES) -> list[list[dict]]:
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    size = 0
+    for item in exports:
+        est = len(json.dumps(item))
+        if current and (size + est > max_bytes or len(current) >= MAX_BATCH_FILES):
+            batches.append(current)
+            current = []
+            size = 0
+        current.append(item)
+        size += est
+    if current:
+        batches.append(current)
+    return batches
+
+
+def strip_leading_json_comment(body: str) -> str:
+    return re.sub(r"^\uFEFF?\s*/\*[\s\S]*?\*/\s*", "", body)
+
+
+def theme_json_for_upload(path: Path) -> str:
+    text = path.read_text(encoding="utf-8")
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        return strip_leading_json_comment(text)
 
 
 def file_to_export(path: Path, root: Path) -> dict:
     rel = path.relative_to(root).as_posix()
     if path.suffix.lower() in TEXT_SUFFIXES:
-        return {"filename": rel, "encoding": "text", "content": path.read_text(encoding="utf-8")}
+        content = theme_json_for_upload(path) if path.suffix.lower() == ".json" else path.read_text(encoding="utf-8")
+        return {"filename": rel, "encoding": "text", "content": content}
     return {
         "filename": rel,
         "encoding": "base64",
@@ -39,24 +92,16 @@ def main() -> None:
         print(f"manifest.json not found in {root}", file=sys.stderr)
         sys.exit(1)
 
-    paths = sorted(
-        p
-        for p in root.rglob("*")
-        if p.is_file()
-        and p.name not in SKIP_NAMES
-        and not any(part.startswith(".") for part in p.relative_to(root).parts)
-    )
+    paths = collect_mirror_paths(root)
     exports = [file_to_export(p, root) for p in paths]
-    print(f"restore {len(exports)} files from {root}")
+    batches = batch_exports(exports)
+    print(f"restore {len(exports)} theme files from {root} ({len(batches)} batches)")
 
     client = connect()
     restored = 0
     theme_gid = ""
-    for i in range(0, len(exports), BATCH):
-        chunk = exports[i : i + BATCH]
-        batch_no = i // BATCH + 1
-        batch_total = (len(exports) + BATCH - 1) // BATCH
-        print(f"batch {batch_no}/{batch_total} ({len(chunk)} files)...", flush=True)
+    for batch_no, chunk in enumerate(batches, start=1):
+        print(f"batch {batch_no}/{len(batches)} ({len(chunk)} files)...", flush=True)
         result = client.call_tool("restore_live_theme_mirror_files", {"files": chunk})
         theme_gid = result.get("themeGid", theme_gid)
         restored += result.get("restored", len(chunk))
