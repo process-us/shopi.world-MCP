@@ -73,6 +73,8 @@ Max 25 paths per call.
 
 Max 25 files per call. Requires `theme:write`.
 
+**Payload note:** Although the tool accepts up to 25 files, the restore scripts batch by **~100KB total encoded payload** per request. A single file larger than that (common for cloned `templates/page.*.json`) will return **413** even when uploaded alone — extract content to `snippets/` or use the Theme Editor.
+
 **Output:** `{ "themeGid": "…", "restored": 2 }`
 
 ## Behavior
