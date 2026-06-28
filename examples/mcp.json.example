@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "shopi-world": {
+      "url": "https://fronts.me/shopify/mcp",
+      "headers": {
+        "Authorization": "Bearer sw_mcp_REPLACE_WITH_YOUR_TOKEN"
+      }
+    }
+  }
+}
