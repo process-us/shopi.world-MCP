@@ -68,8 +68,10 @@ The script uses your token from `~/.cursor/mcp.json`, or set `SHOPI_MCP_TOKEN`.
 | Path | Purpose |
 |------|---------|
 | [scripts/download_theme_mirror.py](scripts/download_theme_mirror.py) | Full backup → local folder |
+| [scripts/download_changed.py](scripts/download_changed.py) | Changed files only → local folder (checksum delta; daily pull from Shopify) |
 | [scripts/restore_theme_mirror.py](scripts/restore_theme_mirror.py) | Local folder → live theme |
-| [scripts/restore_changed.py](scripts/restore_changed.py) | Git-changed files only → live theme (daily workflow) |
+| [scripts/restore_changed.py](scripts/restore_changed.py) | Git-changed files only → live theme (daily push to Shopify) |
+| [scripts/mirror_download_lib.py](scripts/mirror_download_lib.py) | Shared delta/full download helpers |
 | [scripts/mcp_client.py](scripts/mcp_client.py) | Minimal Python MCP HTTP client |
 | [snippets/](snippets/) | Copy-paste helpers (Python / Node) |
 | [examples/mcp.json.example](examples/mcp.json.example) | Cursor config template |
@@ -87,7 +89,30 @@ The script uses your token from `~/.cursor/mcp.json`, or set `SHOPI_MCP_TOKEN`.
 python3 scripts/download_theme_mirror.py ./theme-mirror
 ```
 
-**Cursor agent:**
+### Refresh backup (Shopify → disk)
+
+After editing in **Shopify admin → Themes → Edit code**, pull only what changed:
+
+```bash
+python3 scripts/download_changed.py ./theme-mirror
+python3 scripts/download_changed.py ./theme-mirror --dry-run   # preview
+```
+
+Compares remote `checksumMd5` (and `updatedAt` in manifest metadata) to your local `manifest.json` from the last sync. Downloads file bodies only for changed or new paths. Falls back to a **full** download when `manifest.json` is missing or `themeGid` changed.
+
+First-time backup or disaster recovery — full download:
+
+```bash
+python3 scripts/download_theme_mirror.py ./theme-mirror
+```
+
+Optional: `--delete-removed` removes local copies of files deleted on Shopify.
+
+**Cursor agent (delta):**
+
+> Refresh my theme mirror at `./theme-mirror/` with a delta download: `live_theme_mirror_manifest`, compare checksums to local `manifest.json`, then `read_live_theme_mirror_files` only for changed files. Update `manifest.json`.
+
+**Cursor agent (full backup):**
 
 > Back up my full live theme into `./theme-mirror/`: `live_theme_mirror_manifest`, then `read_live_theme_mirror_files` in batches of 25. Text as UTF-8, base64 as binary. Match manifest file count.
 
@@ -153,9 +178,9 @@ If you maintain a mirror with translation tooling, keep scripts **outside** the 
 
 ### Refresh backup
 
-Re-run `download_theme_mirror.py` — overwrites local files and updates `manifest.json`.
+Prefer `download_changed.py` after Theme Editor edits (checksum delta). Use `download_theme_mirror.py` for first backup or `--full` re-sync.
 
-### Recommended dev loop (git + push changed only)
+### Recommended dev loop (git + delta sync both ways)
 
 After the initial backup, most day-to-day work looks like this:
 
@@ -167,7 +192,15 @@ python3 ~/path/to/shopi-world-mcp/scripts/restore_changed.py . --dry-run
 python3 ~/path/to/shopi-world-mcp/scripts/restore_changed.py .
 ```
 
-`restore_changed.py` compares your working tree to git `HEAD` (or `--against origin/main`) and uploads only changed theme files. Use this instead of a full restore whenever possible — it is faster and avoids re-sending hundreds of unchanged files.
+Pulled edits from Shopify admin:
+
+```bash
+python3 ~/path/to/shopi-world-mcp/scripts/download_changed.py . --dry-run
+python3 ~/path/to/shopi-world-mcp/scripts/download_changed.py .
+git diff && git commit -am "Sync from Shopify"
+```
+
+`restore_changed.py` compares your working tree to git `HEAD` (or `--against origin/main`) and uploads only changed theme files. `download_changed.py` compares remote checksums to `manifest.json` and downloads only changed file bodies. Use these instead of full restore/download whenever possible.
 
 Commit in the mirror repo when a change set is good; restore does **not** require a commit, but git makes `--dry-run` reviews and rollbacks much easier.
 

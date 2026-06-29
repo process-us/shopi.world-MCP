@@ -33,7 +33,9 @@ Auth: `Authorization: Bearer sw_mcp_…` (per-shop token from shopi.world Settin
 
 **Input:** `{}`
 
-**Output:** `{ version, shop, themeGid, exportedAt, fileCount, files: [{ filename, checksumMd5, size, contentType }] }`
+**Output:** `{ version, shop, themeGid, exportedAt, fileCount, files: [{ filename, checksumMd5, size, contentType, updatedAt }] }`
+
+`checksumMd5` drives delta download (`download_changed.py`). `updatedAt` is Shopify’s last-modified time (informational).
 
 ### `read_live_theme_mirror_files`
 
