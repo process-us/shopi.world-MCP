@@ -22,7 +22,7 @@ TEXT_SUFFIXES = {
 }
 SKIP_NAMES = {"manifest.json", ".gitignore", "README.md", "LICENSE"}
 # Never upload VCS, tooling, or hidden paths to Shopify.
-SKIP_DIR_PARTS = frozenset({".git", "scripts", "node_modules", "__pycache__"})
+SKIP_DIR_PARTS = frozenset({".git", "scripts", "docs", "node_modules", "__pycache__"})
 MAX_BATCH_BYTES = 100_000
 MAX_BATCH_FILES = 3
 
