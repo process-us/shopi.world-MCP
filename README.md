@@ -81,9 +81,9 @@ The script uses your token from `~/.cursor/mcp.json`, or set `SHOPI_MCP_TOKEN`.
 
 ## Workflows
 
-### Backup (Shopify → disk)
+### Backup (Shopify → disk) — first time only
 
-**Script (recommended):**
+**Full download** (initial mirror or disaster recovery):
 
 ```bash
 python3 scripts/download_theme_mirror.py ./theme-mirror
