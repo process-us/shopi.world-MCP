@@ -37,6 +37,8 @@ Auth: `Authorization: Bearer sw_mcp_…` (per-shop token from shopi.world Settin
 
 `checksumMd5` drives delta download (`download_changed.py`). `updatedAt` is Shopify’s last-modified time (informational).
 
+See [examples/manifest.json.example](../examples/manifest.json.example) and [examples/cursor-prompts.md](../examples/cursor-prompts.md).
+
 ### `read_live_theme_mirror_files`
 
 **Input:**

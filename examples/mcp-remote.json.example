@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "shopi-world": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote@latest", "https://fronts.me/shopify/mcp"],
+      "env": {
+        "AUTHORIZATION": "Bearer sw_mcp_REPLACE_WITH_YOUR_TOKEN"
+      }
+    }
+  }
+}

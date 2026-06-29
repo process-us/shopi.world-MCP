@@ -9,6 +9,19 @@ Connect **Cursor** (or any MCP client) to your Shopify store’s **theme files**
 
 **MCP endpoint:** `https://fronts.me/shopify/mcp`
 
+**Also in this repo:** theme backup/restore scripts **and** offline translation tools for multilingual stores. See [Translation guide](#translation-guide) below.
+
+---
+
+## Table of contents
+
+1. [Quick start](#quick-start) — token, Cursor config, first backup
+2. [What’s in this repo](#whats-in-this-repo)
+3. [Workflows](#workflows) — backup, delta sync, restore
+4. [Translation guide](#translation-guide) — **merchants & developers**
+5. [Migrating from WordPress](#migrating-from-wordpress-or-another-platform)
+6. [Troubleshooting](#troubleshooting)
+
 ---
 
 ## Quick start
@@ -61,6 +74,17 @@ git init && git add . && git commit -m "Initial live theme backup"
 
 The script uses your token from `~/.cursor/mcp.json`, or set `SHOPI_MCP_TOKEN`.
 
+### 5. Day-to-day sync (delta)
+
+After the first full backup, pull only files that changed on Shopify:
+
+```bash
+python3 ~/dev/shopi-world-mcp/scripts/download_changed.py ~/dev/my-theme-mirror --dry-run
+python3 ~/dev/shopi-world-mcp/scripts/download_changed.py ~/dev/my-theme-mirror
+```
+
+See [examples/](examples/) for shell wrappers and Cursor prompts.
+
 ---
 
 ## What’s in this repo
@@ -71,56 +95,78 @@ The script uses your token from `~/.cursor/mcp.json`, or set `SHOPI_MCP_TOKEN`.
 | [scripts/download_changed.py](scripts/download_changed.py) | Changed files only → local folder (checksum delta; daily pull from Shopify) |
 | [scripts/restore_theme_mirror.py](scripts/restore_theme_mirror.py) | Local folder → live theme |
 | [scripts/restore_changed.py](scripts/restore_changed.py) | Git-changed files only → live theme (daily push to Shopify) |
+| [scripts/localize_theme.py](scripts/localize_theme.py) | Wrap baked-in copy in `{% case request.locale.iso_code %}` (offline, glossary-driven) |
+| [scripts/audit_theme_i18n.py](scripts/audit_theme_i18n.py) | Audit mirror for hardcoded copy vs `t` filter (greenfield readiness) |
+| [scripts/theme_markup_localize.py](scripts/theme_markup_localize.py) | Core Liquid localizer (used by `localize_theme.py`) |
+| [scripts/locale_text_detect.py](scripts/locale_text_detect.py) | Primary-locale script detection for translatable runs |
 | [scripts/mirror_download_lib.py](scripts/mirror_download_lib.py) | Shared delta/full download helpers |
 | [scripts/mcp_client.py](scripts/mcp_client.py) | Minimal Python MCP HTTP client |
 | [snippets/](snippets/) | Copy-paste helpers (Python / Node) |
-| [examples/mcp.json.example](examples/mcp.json.example) | Cursor config template |
+| [examples/](examples/) | MCP config, sync scripts, glossary sample, Cursor prompts |
 | [docs/TOOLS.md](docs/TOOLS.md) | Full MCP tool reference |
 
 ---
 
 ## Workflows
 
-### Backup (Shopify → disk) — first time only
+### Full backup vs delta pull
 
-**Full download** (initial mirror or disaster recovery):
+| Situation | Command |
+|-----------|---------|
+| First backup, or no local `manifest.json` | `download_theme_mirror.py` |
+| Live theme switched (`themeGid` changed) | `download_theme_mirror.py` (auto-detected) |
+| Edited files in Shopify Theme Editor | `download_changed.py` |
+| Force re-download everything | `download_changed.py --full` |
+
+**Delta pull** compares remote `checksumMd5` (from `live_theme_mirror_manifest`) to your local [`manifest.json`](examples/manifest.json.example) from the last sync. Only changed or new file bodies are downloaded. See [examples/sync-from-shopify.sh](examples/sync-from-shopify.sh).
+
+**Delta push** (`restore_changed.py`) compares your working tree to git `HEAD` (or `--against`) and uploads only changed theme files. See [examples/push-to-shopify.sh](examples/push-to-shopify.sh).
+
+### Backup (Shopify → disk) — first time
 
 ```bash
 python3 scripts/download_theme_mirror.py ./theme-mirror
 ```
 
-### Refresh backup (Shopify → disk)
+### Delta pull (Shopify → disk)
 
-After editing in **Shopify admin → Themes → Edit code**, pull only what changed:
+After editing in **Shopify admin → Themes → Edit code**:
 
 ```bash
 python3 scripts/download_changed.py ./theme-mirror
-python3 scripts/download_changed.py ./theme-mirror --dry-run   # preview
+python3 scripts/download_changed.py ./theme-mirror --dry-run          # preview only
+python3 scripts/download_changed.py ./theme-mirror --full             # ignore local checksums
+python3 scripts/download_changed.py ./theme-mirror --delete-removed   # delete local orphans
 ```
 
-Compares remote `checksumMd5` (and `updatedAt` in manifest metadata) to your local `manifest.json` from the last sync. Downloads file bodies only for changed or new paths. Falls back to a **full** download when `manifest.json` is missing or `themeGid` changed.
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | List changed paths; do not fetch bodies or update `manifest.json` |
+| `--full` | Download every file (same as first backup, but reuses existing folder) |
+| `--delete-removed` | Remove local copies of files deleted on Shopify |
 
-First-time backup or disaster recovery — full download:
-
-```bash
-python3 scripts/download_theme_mirror.py ./theme-mirror
-```
-
-Optional: `--delete-removed` removes local copies of files deleted on Shopify.
-
-**Cursor agent (delta):**
+**Cursor agent:**
 
 > Refresh my theme mirror at `./theme-mirror/` with a delta download: `live_theme_mirror_manifest`, compare checksums to local `manifest.json`, then `read_live_theme_mirror_files` only for changed files. Update `manifest.json`.
 
-**Cursor agent (full backup):**
-
-> Back up my full live theme into `./theme-mirror/`: `live_theme_mirror_manifest`, then `read_live_theme_mirror_files` in batches of 25. Text as UTF-8, base64 as binary. Match manifest file count.
+More prompts: [examples/cursor-prompts.md](examples/cursor-prompts.md)
 
 ### Edit a single file
 
 > Read `sections/header.liquid` from my live theme and show me the first 50 lines.
 
 > Update the footer CSS in `assets/section-footer.css` on my live theme. (needs write token)
+
+Push a few files from your mirror without git:
+
+```bash
+cd ./theme-mirror
+python3 ~/path/to/shopi-world-mcp/examples/push-files.py sections/header.liquid snippets/foo.liquid
+```
+
+**Cursor agent (full backup):**
+
+> Back up my full live theme into `./theme-mirror/`: `live_theme_mirror_manifest`, then `read_live_theme_mirror_files` in batches of 25. Text as UTF-8, base64 as binary. Match manifest file count.
 
 ### Restore (disk → Shopify)
 
@@ -137,6 +183,11 @@ python3 scripts/restore_changed.py ./theme-mirror
 python3 scripts/restore_changed.py ./theme-mirror --dry-run   # preview
 python3 scripts/restore_changed.py ./theme-mirror --against origin/main
 ```
+
+| Flag | Effect |
+|------|--------|
+| `--dry-run` | List files that would upload; no MCP calls |
+| `--against REF` | Compare working tree to git ref (default: `HEAD`) |
 
 Requires **Allow theme writes** on your token.
 
@@ -155,32 +206,202 @@ Keep your git repo at the mirror root if you like (`git init` in `theme-mirror/`
 
 **Locale JSON files** (`locales/*.json`) often start with Shopify’s auto-generated `/* … */` banner. The script strips that banner on upload when needed so MCP JSON validation passes (Shopify stores the JSON body either way).
 
-### Multilingual stores (Hebrew + Arabic)
+---
 
-Shopify locale URLs work like this:
+## Translation guide
+
+Multilingual Shopify stores need **two different kinds of work**:
+
+1. **Translate content** — strings in theme files, menus, product copy (shopi.world app, Shopify admin, or local scripts).
+2. **Push theme files** — this repo’s MCP scripts upload the result to your live theme.
+
+**MCP does not machine-translate.** It is the last mile after translation.
+
+### Choose your workflow
+
+| You are… | Theme type | What to use |
+|----------|------------|-------------|
+| **Merchant** (no code) | Any | [shopi.world](https://fronts.me/shopify/) → **Languages** tab |
+| **Merchant** | Standard Dawn / `t` filter theme | Languages → **Bootstrap** + **Apply** (auto-detects greenfield) |
+| **Merchant** | Cloned marketing site (baked HTML) | Languages → **Apply** (includes theme-content + metafields) |
+| **Developer** | Cloned / custom_liquid HTML | `localize_theme.py` + glossary → `restore_changed.py` |
+| **Developer** | Standard Dawn i18n | `audit_theme_i18n.py` → fix issues → `restore_changed.py` |
+| **Anyone** | Product titles only | Shopify **Translate & Adapt** (not theme files) |
+
+### What gets translated where
+
+| Content | Tool | Uploaded via MCP? |
+|---------|------|-----------------|
+| Cart, search, checkout (Dawn UI) | `locales/*.json` or Languages **Bootstrap** | Yes |
+| Theme editor text, menus, pages | Languages **Apply** (`theme-translations`) | No — Shopify Translation API |
+| Marketing HTML in `custom_liquid` | Languages **Apply** or `localize_theme.py` | Yes |
+| `shopi.*` product metafields (cloned PDPs) | Languages **Apply** (`theme-content`) | No — metafield translations in Shopify |
+| Product titles & descriptions | Translate & Adapt or shopi.world WPML sync | No |
+| Glossary JSON, Python scripts | Local only | **No** — `scripts/` excluded on restore |
+
+### Merchant workflow (shopi.world app)
+
+No SSH, no local mirror required.
+
+1. Install [shopi.world](https://fronts.me/shopify/) and connect your store.
+2. **Shopify Admin → Settings → Languages** — add and **publish** target locales (e.g. Arabic, French).
+3. Open shopi.world → **Languages** (`/languages`).
+4. Review **Theme translation profile** (greenfield / cloned / mixed) — the app picks the right pipeline.
+5. Optional: edit **Glossary** (source → target pairs) for domain-specific phrases.
+6. Click **Preview**, then **Apply** for your target locale.
+
+| Button | What it does |
+|--------|----------------|
+| **Bootstrap theme locales** | Creates/updates `locales/<locale>.json` from your default locale file |
+| **Preview** | Dry-run — shows counts, no writes |
+| **Apply** | Runs recommended steps for your theme profile |
+| **Apply + baked-in HTML** | (Greenfield only) Also runs in-theme HTML rewrite if needed |
+| **Sync product translations** | WPML → Shopify (requires WooCommerce connection) |
+
+**Greenfield themes** (Dawn with `{{ 'key' \| t }}`): profile shows *Standard theme (i18n)* — Apply runs bootstrap + theme-translations only.
+
+**Cloned themes** (marketing HTML in templates): profile shows *Cloned / baked-in HTML* — Apply also rewrites Liquid and translates `shopi.*` metafields.
+
+After Apply, if you use a **local mirror**, pull changes from Shopify:
+
+```bash
+python3 scripts/download_changed.py ~/dev/my-theme-mirror
+```
+
+### Developer workflow — cloned themes (`localize_theme.py`)
+
+For themes with **primary-language copy baked into** `custom_liquid`, snippets, or custom sections — typical after a site clone.
+
+**Prerequisites:** local theme mirror (see [Quick start](#quick-start)), Python 3, glossary JSON.
+
+```bash
+# 0. Clone this repo if you haven't
+git clone https://github.com/process-us/shopi-world-mcp.git
+cd shopi-world-mcp
+
+# 1. Back up live theme (first time only)
+python3 scripts/download_theme_mirror.py ~/dev/my-theme-mirror
+
+# 2. List strings that need glossary entries
+python3 scripts/localize_theme.py \
+  --mirror ~/dev/my-theme-mirror \
+  --primary he \
+  --list-runs
+
+# 3. Create glossary (flat JSON: primary text → translation)
+#    See examples/glossary-ar.json.example
+cat > /tmp/glossary-ar.json <<'EOF'
+{
+  "טקסט בעברית": "النص العربي"
+}
+EOF
+
+# 4. Apply locale wrappers ({% case request.locale.iso_code %})
+python3 scripts/localize_theme.py \
+  --mirror ~/dev/my-theme-mirror \
+  --primary he \
+  --target ar \
+  --glossary /tmp/glossary-ar.json
+
+# Multiple targets in one glossary file:
+# { "ar": { "שלום": "مرحبا" }, "fr": { "שלום": "Bonjour" } }
+python3 scripts/localize_theme.py \
+  --mirror ~/dev/my-theme-mirror \
+  --primary he \
+  --target ar,fr \
+  --glossary ./glossary.json
+
+# 5. Review and push to live theme
+cd ~/dev/my-theme-mirror
+git diff
+python3 ~/dev/shopi-world-mcp/scripts/restore_changed.py . --dry-run
+python3 ~/dev/shopi-world-mcp/scripts/restore_changed.py .
+```
+
+**`localize_theme.py` flags**
+
+| Flag | Effect |
+|------|--------|
+| `--mirror PATH` | Theme mirror root (required) |
+| `--primary LOCALE` | Primary locale for script detection (default `he`) |
+| `--target LOCALES` | Comma-separated, e.g. `ar` or `ar,fr` |
+| `--glossary FILE` | Flat JSON (one target) or nested by locale (multiple targets) |
+| `--glossary-dir DIR` | Per-locale files: `ar.json`, `fr.json`, … |
+| `--scope all\|homepage` | `all` = templates + sections; `homepage` = `index.json` only |
+| `--extra-glob PATTERN` | Repeatable, e.g. `snippets/shopi*.liquid` |
+| `--list-runs` | Print unique source strings (build your glossary) |
+| `--dry-run` | Report without writing files |
+
+**Liquid pattern** — keep primary copy in `{% else %}`, add targets with `{% when %}`:
+
+```liquid
+{% case request.locale.iso_code %}
+  {% when 'ar' %}النص العربي
+  {% else %}טקסט בעברית
+{% endcase %}
+```
+
+Never replace primary-language strings in source files with translations.
+
+### Developer workflow — greenfield themes (`audit_theme_i18n.py`)
+
+For **standard Dawn-style** themes that use `{{ 'sections.header.menu' | t }}` and `locales/*.json`.
+
+```bash
+# Audit mirror before push
+python3 scripts/audit_theme_i18n.py ~/dev/my-theme-mirror
+python3 scripts/audit_theme_i18n.py ~/dev/my-theme-mirror --primary en --json
+
+# Fix any reported hardcoded strings → use | t + locales/*.json
+# Machine-translate theme editor strings via shopi.world Languages → Apply
+# Push locale file edits:
+python3 scripts/restore_changed.py ~/dev/my-theme-mirror
+```
+
+Profile **greenfield** → you do **not** need `localize_theme.py`.
+
+### Shopify locale URLs
 
 | URL | Language |
 |-----|----------|
-| `https://your-store.myshopify.com/` | Primary (e.g. Hebrew) |
-| `https://your-store.myshopify.com/ar` | Arabic (`locales/ar.json` + locale-aware Liquid) |
-| `https://your-store.myshopify.com/en` | English (`locales/en.default.json`) |
+| `https://your-store.myshopify.com/` | Primary (e.g. Hebrew, English) |
+| `https://your-store.myshopify.com/ar` | Arabic |
+| `https://your-store.myshopify.com/fr` | French |
 
-**Do not replace** Hebrew strings in theme files with Arabic. Keep Hebrew as the default and wrap baked-in copy:
+Dawn UI strings (cart, checkout) → edit `locales/ar.json`, not hardcoded Liquid.
 
-```liquid
-{% if request.locale.iso_code == 'ar' %}النص العربي{% else %}טקסט בעברית{% endif %}
+### Typical mirror layout
+
+```text
+theme-mirror/
+  manifest.json              # local only — never uploaded
+  locales/
+    en.default.json
+    ar.json
+  templates/index.json
+  snippets/my-hero.liquid
+  glossary-ar.json             # local only (or use shopi.world Languages glossary UI)
+  scripts/                     # local only — never uploaded
+  .git/                        # local only — never uploaded
 ```
 
-- **Dawn UI strings** (cart, checkout, search) → edit `locales/ar.json` / `locales/he.json`, not hardcoded Liquid.
-- **Marketing HTML in `custom_liquid`** → locale conditionals as above (shopi.world’s theme clone uses the same pattern).
+### End-to-end example (developer, cloned store)
 
-If you maintain a mirror with translation tooling, keep scripts **outside** the upload path (e.g. `theme-mirror/scripts/` is excluded automatically) or in a separate repo.
+```bash
+# Translate offline
+python3 scripts/localize_theme.py --mirror ./theme-mirror --primary he --target ar \
+  --glossary ./glossary-ar.json --dry-run
+python3 scripts/localize_theme.py --mirror ./theme-mirror --primary he --target ar \
+  --glossary ./glossary-ar.json
 
-### Refresh backup
+# Push + verify on /ar
+python3 scripts/restore_changed.py ./theme-mirror
+open "https://YOUR-STORE.myshopify.com/ar"
+```
 
-Prefer `download_changed.py` after Theme Editor edits (checksum delta). Use `download_theme_mirror.py` for first backup or `--full` re-sync.
+---
 
-### Recommended dev loop (git + delta sync both ways)
+### Recommended dev loop (git + delta sync)
 
 After the initial backup, most day-to-day work looks like this:
 
@@ -263,9 +484,9 @@ for p in json.load(sys.stdin)['products']:
 | Content type | Where to translate |
 |--------------|-------------------|
 | Cart, search, checkout labels | `locales/ar.json`, `locales/he.json` |
-| Marketing HTML in `custom_liquid` / cloned snippets | `{% if request.locale.iso_code == 'ar' %}…{% else %}…{% endif %}` |
+| Marketing HTML in `custom_liquid` / cloned snippets | `{% case request.locale.iso_code %}` or shopi.world Languages **Apply** |
 
-Never bulk-replace Hebrew with Arabic in source files — use locale conditionals or Shopify’s translation system.
+Never bulk-replace Hebrew with Arabic in source files — use locale conditionals (`{% case %}`) or Shopify’s translation system.
 
 ### Cloned HTML gotchas
 
@@ -321,7 +542,7 @@ This gives the next developer (or Cursor agent) a map without re-scanning the wh
 
 ```text
 theme-mirror/
-  manifest.json              # local only — not uploaded on restore
+  manifest.json              # local only — delta sync index (see examples/manifest.json.example)
   config/settings_data.json
   sections/header.liquid
   assets/logo.png
@@ -332,6 +553,8 @@ theme-mirror/
 ```
 
 **Tip:** Run `git init` inside `theme-mirror/` for version control. Restore ignores `.git` entirely.
+
+`manifest.json` is written by `download_theme_mirror.py` and `download_changed.py`. Each entry includes `checksumMd5` — the delta pull compares this to the remote manifest and skips unchanged files.
 
 ---
 
@@ -426,7 +649,7 @@ Full list: [docs/TOOLS.md](docs/TOOLS.md)
 | **Script: no token** | Set `SHOPI_MCP_TOKEN` or fix `~/.cursor/mcp.json` |
 | **`url` transport fails** | Fallback config below |
 
-**mcp-remote fallback** (if Cursor `url` mode fails):
+**mcp-remote fallback** (if Cursor `url` mode fails): see [examples/mcp-remote.json.example](examples/mcp-remote.json.example)
 
 ```json
 "shopi-world": {
@@ -456,5 +679,6 @@ MIT — see [LICENSE](LICENSE).
 
 ## Links
 
-- **App:** [fronts.me/shopify](https://fronts.me/shopify/)
+- **App:** [fronts.me/shopify](https://fronts.me/shopify/) — embedded app + **Languages** tab for merchants
+- **Translation guide:** [README § Translation guide](#translation-guide)
 - **Shopify app:** install from your shopi.world Partner listing / Shopify admin

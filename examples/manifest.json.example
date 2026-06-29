@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "shop": "your-store.myshopify.com",
+  "themeGid": "gid://shopify/OnlineStoreTheme/123456789012",
+  "exportedAt": "2026-06-28T12:00:00.000Z",
+  "fileCount": 312,
+  "files": [
+    {
+      "filename": "config/settings_data.json",
+      "checksumMd5": "a1b2c3d4e5f6789012345678901234ab",
+      "size": 4821,
+      "contentType": "application/json",
+      "updatedAt": "2026-06-27T09:15:00.000Z"
+    },
+    {
+      "filename": "sections/header.liquid",
+      "checksumMd5": "fedcba9876543210fedcba9876543210",
+      "size": 12440,
+      "contentType": "text/x-liquid",
+      "updatedAt": "2026-06-28T11:30:00.000Z"
+    }
+  ]
+}
