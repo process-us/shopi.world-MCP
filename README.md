@@ -95,6 +95,7 @@ See [examples/](examples/) for shell wrappers and Cursor prompts.
 | [scripts/download_changed.py](scripts/download_changed.py) | Changed files only → local folder (checksum delta; daily pull from Shopify) |
 | [scripts/restore_theme_mirror.py](scripts/restore_theme_mirror.py) | Local folder → live theme |
 | [scripts/restore_changed.py](scripts/restore_changed.py) | Git-changed files only → live theme (daily push to Shopify) |
+| [scripts/upload_theme_assets_from_urls.py](scripts/upload_theme_assets_from_urls.py) | Large theme assets via server-side URL download (bypasses MCP payload limit) |
 | [scripts/localize_theme.py](scripts/localize_theme.py) | Wrap baked-in copy in `{% case request.locale.iso_code %}` (offline, glossary-driven) |
 | [scripts/audit_theme_i18n.py](scripts/audit_theme_i18n.py) | Audit mirror for hardcoded copy vs `t` filter (greenfield readiness) |
 | [scripts/theme_markup_localize.py](scripts/theme_markup_localize.py) | Core Liquid localizer (used by `localize_theme.py`) |
@@ -629,6 +630,10 @@ print(data["files"][0]["filename"])
 | `live_theme_mirror_manifest` | read | List all theme files (backup step 1) |
 | `read_live_theme_mirror_files` | read | Download up to 25 files (backup step 2) |
 | `restore_live_theme_mirror_files` | write | Upload up to 25 files (restore) |
+| `upload_theme_assets_from_urls` | write | Download URL(s) server-side and upsert theme assets (large images) |
+| `live_theme_drift` | read | Compare live theme vs last shopi.world snapshot |
+| `live_theme_file_events` | read | Recent tracked writes (MCP audit log) |
+| `refresh_live_theme_manifest_snapshot` | write | Pull full live manifest as drift baseline |
 | `read_live_theme_file` | read | Single text file |
 | `write_live_theme_file` | write | Save single text file |
 
@@ -642,7 +647,7 @@ Full list: [docs/TOOLS.md](docs/TOOLS.md)
 |---------|-----|
 | **401** | Regenerate token in shopi.world Settings |
 | **Write denied** | Create token with *Allow theme writes* |
-| **413 Payload Too Large** | One or more files exceed ~100KB encoded in a single batch — use `restore_changed.py` to narrow scope; split large `custom_liquid` into `snippets/`; upload oversized `templates/page.*.json` via Theme Editor |
+| **413 Payload Too Large** | One or more files exceed ~100KB encoded in a single batch — use `restore_changed.py` to narrow scope; split large `custom_liquid` into `snippets/`; use `upload_theme_assets_from_urls.py` for large `assets/*` images |
 | **413 after partial restore** | Earlier batches may have succeeded — fix/split the failing file, run `restore_changed.py` again |
 | **File is not valid JSON** | Usually a `locales/*.json` banner comment — use the latest `restore_theme_mirror.py` (strips it automatically) |
 | **Red dot on MCP** | Toggle shopi-world off/on in Cursor |

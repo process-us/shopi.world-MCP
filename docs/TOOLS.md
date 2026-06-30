@@ -26,6 +26,34 @@ Auth: `Authorization: Bearer sw_mcp_…` (per-shop token from shopi.world Settin
 | `live_theme_mirror_manifest` | read | Full MAIN theme file list + metadata |
 | `read_live_theme_mirror_files` | read | Batch read up to **25** files (text + base64) |
 | `restore_live_theme_mirror_files` | write | Batch restore up to **25** files to live MAIN theme |
+| `upload_theme_assets_from_urls` | write | Download URL(s) server-side and upsert theme assets (large images) |
+| `live_theme_drift` | read | Compare live MAIN theme vs last shopi.world checksum snapshot |
+| `live_theme_file_events` | read | Recent tracked writes to live theme (audit log) |
+| `refresh_live_theme_manifest_snapshot` | write | Pull full live manifest as drift baseline |
+
+## Drift detection
+
+After MCP restores (or **Backup → Update baseline** in shopi.world), the server stores a per-shop checksum snapshot. `live_theme_drift` reports files changed on Shopify outside tracked writes (e.g. theme editor).
+
+### `live_theme_drift`
+
+**Input:** `{}`
+
+**Output:** `{ themeGid, hasSnapshot, snapshotAt, liveAt, unchanged, added[], removed[], changed[{ filename, snapshotChecksum, liveChecksum, snapshotSize, liveSize }] }`
+
+### `upload_theme_assets_from_urls`
+
+**Input:**
+
+```json
+{
+  "files": [
+    { "url": "https://example.com/image.jpg", "filename": "assets/home-cat-example.jpg" }
+  ]
+}
+```
+
+Paths must start with `assets/`. Server downloads and upserts — no base64 in the MCP request. Requires `theme:write`.
 
 ## Mirror tools (backup / restore)
 
